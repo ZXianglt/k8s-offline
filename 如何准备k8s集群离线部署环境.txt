@@ -1,0 +1,152 @@
+#一、安装源准备
+ubuntu24.04
+#1.1 nginx 安装
+
+sudo apt update
+sudo apt install nginx
+sudo systemctl status nginx
+
+#1.2 kubernetes 软件获取
+#k8s社区（下载用于Kubernetes软件包仓库的公共签名密钥，所有仓库都使用相同的签名密钥，只需更换1.34版本号即可）
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+#添加Kubernetes apt 仓库(apt源）
+#本仓库仅适用v1.34版本
+sudo nano /etc/apt/sources.list.d/kubernetes.list
+deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /
+
+ls /etc/apt/sources.list.d/
+
+sudo apt update
+sudo apt upgrade
+sudo apt policy kubeadm kubelet kubectl
+成功将显示
+#kubeadm:
+  已安装：1.34.1-1.1
+  候选： 1.34.1-1.1
+  版本列表：
+ *** 1.34.1-1.1 500
+        500 https://pkgs.k8s.io/core:/stable:/v1.34/deb  Packages
+        100 /var/lib/dpkg/status
+     1.34.0-1.1 500
+        500 https://pkgs.k8s.io/core:/stable:/v1.34/deb  Packages
+kubelet:
+  已安装：1.34.1-1.1
+  候选： 1.34.1-1.1
+  版本列表：
+ *** 1.34.1-1.1 500
+        500 https://pkgs.k8s.io/core:/stable:/v1.34/deb  Packages
+        100 /var/lib/dpkg/status
+     1.34.0-1.1 500
+        500 https://pkgs.k8s.io/core:/stable:/v1.34/deb  Packages
+kubectl:
+  已安装：1.34.1-1.1
+  候选： 1.34.1-1.1
+  版本列表：
+ *** 1.34.1-1.1 500
+        500 https://pkgs.k8s.io/core:/stable:/v1.34/deb  Packages
+        100 /var/lib/dpkg/status
+     1.34.0-1.1 500
+        500 https://pkgs.k8s.io/core:/stable:/v1.34/deb  Packages
+
+
+sudo apt --download-only install kubeadm=1.34.1-1.1 kubelet=1.34.1-1.1 kubectl=1.34.1-1.1
+
+#安装包
+#sudo ls -l /var/cache/apt/archives/
+kubeadm_1.34.1-1.1_amd64.deb
+kubelet_1.34.1-1.1_amd64.deb
+kubectl_1.34.1-1.1_amd64.deb
+
+
+
+#1.3配置apt源
+sudo mkdir -p /var/www/html/localrepo/dists/noble/main/binary-amd64/
+sudo mv /var/cache/apt/archives/*.deb  /var/www/html/localrepo/dists/noble/main/binary-amd64/
+
+#修改conntrack_1%3a1.4.8-1ubuntu1_amd64.deb文件名为conntrack_1.4.8-1ubuntu1_amd64.deb
+cd /var/www/html/localrepo/dists/noble/main/binary-amd64/
+sudo mv conntrack_1%3a1.4.8-1ubuntu1_amd64.deb  conntrack_1.4.8-1ubuntu1_amd64.deb 
+
+cd /var/www/html/localrepo
+sudo apt install dpkg-dev
+
+#记录软件位置
+sudo dpkg-scanpackages dists/noble/main/binary-amd64 /dev/null | gzip -9c | sudo tee dists/noble/main/binary-amd64/Packages.gz > /dev/null
+
+#查看nginx用户
+ps -ef | grep nginx
+#更改目录权限
+sudo chown -R www-data:www-data /var/www/html/localrepo
+
+#进入ip查看nginx网站，10.0.2.3/localrepo
+403
+#更改nginx配置文件
+sudo nano /etc/nginx/sites-available/default
+
+#添加：
+ #打开索引
+        location /localrepo/ {
+        alias /var/www/html/localrepo/;
+        autoindex on;
+        autoindex_exact_size off;
+        autoindex_localtime on;
+        }
+
+#查看是否有语法问题
+sudo nginx -t 
+sudo systemctl restart nginx
+
+#1.4客户端配置及使用
+
+
+#移动kubernetes.list
+sudo mv /etc/apt/sources.list.d/kubernetes.list /home
+sudo nano /etc/apt/sources.list.d/k8s.list
+sudo apt update 
+sudo apt-cache policy kubeadm
+
+二、k8s离线部署组件容器镜像准备
+#在haror服务器中实现
+2.1
+容器运行时Docker准备
+2.1.1 Add Docker's official GPG key
+sudo apt-get update
+sudo apt-get install ca-certificates curl gnupg -y
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+#连接不上就用阿里镜像源sudo curl -fsSL https://mirrors.aliyun.com/docker-ce/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+
+#添加仓库源
+echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt-get update
+
+
+sudo apt-get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+
+2.1.4修改/etc/hosts文件
+#vim /etc/hosts
+#cat /etc/hosts
+10.0.2.3 www.kubemsb.com
+10.0.2.3 harbor
+10.0.2.3 nginx
+
+2.1.5配置docker使用非安全容器镜像仓库
+sudo tee > /etc/docker/daemon.json <<EOF
+{
+	"insecure-registries":["http://www.kubemsb.com"]
+}
+EOF
+systemctl restart docker
+
+#2.2私有容器镜像仓库harbor部署
+#2.2.1 harbor部署
+#项目仓库https://github.com/goharbor/harbor
+wget https://github/com/goharbor/harbor/releases/download/v2.11.1/harbor-offline-installer-v2.11.1.tgz
+wget https://github.com/goharbor/harbor/releases/download/v2.14.0/harbor-offline-installer-v2.14.0.tgz(最新版本）
